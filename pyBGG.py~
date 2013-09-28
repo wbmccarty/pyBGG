@@ -4,7 +4,7 @@ BGG.py
 Modules for using the BoardGameGeek.com web site.
 
 To Do:
-test
+
 - Log in via specified user and password or, if omitted, configuration file
 - Do all HTTP reads within context of logged-in session, if available
 - Use hash.update()
