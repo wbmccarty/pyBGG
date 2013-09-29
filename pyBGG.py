@@ -5,10 +5,8 @@ Modules for using the BoardGameGeek.com web site.
 
 To Do:
 test
-- Log in via specified user and password or, if omitted, configuration file
-- Do all HTTP reads within context of logged-in session, if available
 - Use hash.update()
-- Collect list of tags/elements available only to logged-in user
+- Capture Collect list of tags/elements available only to logged-in use.
 - Get BGG marketplace items for specified game:
   http://www.boardgamegeek.com/xmlapi/boardgame/111&marketplace=1
 - Get eBay auctions for wishlist of logged-in user:
@@ -23,12 +21,11 @@ test
   seller, price, description/condition.
 - Search history.  
 - Create proper docstring.
-- Set up CVS but exclude configuration file's confidential contents.
 - Add and extract versions information:
   http://www.boardgamegeek.com/xmlapi/boardgame/701&versions=1
 - Ibid. videos=1, comments=1, ratingcomments=1
 - See http://boardgamegeek.com/guild/1229
-  
+- Verify set up of GitHub.  
 
 '''
 
@@ -79,84 +76,66 @@ modifiedsince=YY-MM-DD	 Restricts the collection results to only those whose sta
 '''
 
 '''
-Elements and attributes:
-
-age
-average
-averageweight
-bayesaverage
-boardgame
-boardgameaccessory
-boardgameartist
-boardgamecategory
-boardgamedesigner
-boardgameexpansion
-boardgamehonor
-boardgamemechanic
-boardgamepodcastepisode
-boardgamepublisher
-boardgames
-boardgames.termsofuse
-boardgamesubdomain
-boardgameversion
-description
-image
-maxplayers
-median
-minplayers
-name
-name.primary
-name.sortindex
-numcomments
-numweights
-owned
-playingtime
-poll
-poll.name
-poll.title
-poll.totalvotes
-rank
-rank.bayesaverage
-rank.friendlyname
-rank.id
-rank.name
-rank.type
-rank.value
-ranks
-ratings
-result
-result.level
-result.numvotes
-result.value
-results
-results.numplayers
-statistics
-statistics.page
-stddev
-thumbnail
-trading
-usersrated
-wanting
-wishing
-yearpublished
-
 Note: Additional elements and attributes (e.g., wishlishcomment) are available
 to a logged-in user.
 
 Known additional elements and attributes:
 
+acquiredfrom
+acquisitiondate
 comment
+currvalue
+cv_currency
+numplays
+originalname
+pp_currency
+pricepaid
+privatecomment
+privateinfo
+quantity
+rating
 wishlistcomment
-
 '''
+
 from bs4 import BeautifulSoup
 from bs4 import element
 import ConfigParser
 import lxml.html
+import requests
 import sys
 import traceback
 import urllib
 
+def httpGet(url, session = None):
+    if session == None:
+        return urllib.urlopen(url).read()
+    else:
+        return session.get(url).text.encode('UTF-8')
+
+def login(loginurl = None, username = None, password = None, configfile = None):
+    config = None
+    if loginurl == None or username == None or password == None:
+        if configfile == None:
+            configfile = '../../Gaming/BGG Scripts/bgg_config.ini'
+        config = ConfigParser.ConfigParser()
+        config.read(configfile)
+    if loginurl == None:
+        loginurl = config.get('Login', 'LoginURL')
+    if username == None:
+        username = config.get('Login', 'UserID')
+    if password == None:
+        password = config.get('Login', 'Password')
+    payload = { u'username':username, u'password':password }
+##    print >>sys.stderr, 'loginurl:', loginurl
+##    print >>sys.stderr, 'payload:', payload
+    session = requests.Session()
+    r = session.post(loginurl, data=payload)
+##    print >>sys.stderr, 'status_code:', r.status_code
+##    print >>sys.stderr, r.headers
+##    text = r.text.encode('UTF-8') 
+##    print >>sys.stderr, BeautifulSoup(httpSessionGet('http://www.boardgamegeek.com/geekbay/browse?filterwanttobuy=1&sort=endtime'), 'xml').prettify()
+    return session
+        
 def parseGameObject(soup):
     '''
     Parse a BeautifulSoup object containing the BGG representation of a game. Return a hash of the fields.
@@ -271,10 +250,10 @@ def parseGameObject(soup):
             pass
     return game
 
-def getElementsAndAttributes():
+def getElementsAndAttributes(session = None):
     structure = { }
     URL = 'http://www.boardgamegeek.com/xmlapi/collection/wbmccarty'
-    soup = BeautifulSoup(urllib.urlopen(URL).read(), 'xml')
+    soup = BeautifulSoup(httpGet(URL, session = session), 'xml')
 ##    print soup.prettify()
     # root element: items
     e = soup.find('items')
@@ -290,7 +269,7 @@ def getElementsAndAttributes():
 ##                    print >>sys.stderr, e.name + '.' + attr
         e = e.next_element
     URL = 'http://www.boardgamegeek.com/xmlapi/boardgame/12333?stats=1'
-    soup = BeautifulSoup(urllib.urlopen(URL).read(), 'xml')
+    soup = BeautifulSoup(httpGet(URL, session))
     print soup.prettify()
     # root element: boardgames
     e = soup.find('boardgames')
@@ -307,33 +286,33 @@ def getElementsAndAttributes():
         e = e.next_element
     return structure
     
-def prettyPrintCollectionByUserAndId(user, id):
+def prettyPrintCollectionByUserAndId(user, id, session = None):
     '''
     Pretty print from the specified user's collection all game records
     specified by the given BGG ID.
     '''
     URL = 'http://www.boardgamegeek.com/xmlapi/collection/%s'
     url = URL % user
-    soup = BeautifulSoup(urllib.urlopen(url).read(), 'xml')
+    soup = BeautifulSoup(httpGet(url, session = session), 'xml')
     collection = [ ]
     for item in soup.find_all('item', objectid=str(id)):
         print item.prettify()
         print
 
-def prettyPrintGameById(id):
+def prettyPrintGameById(id, session = None):
     '''
     Pretty print the game record specified by the given BGG ID.
     '''
     URL = 'http://www.boardgamegeek.com/xmlapi/boardgame/%d?stats=1'
     url = URL % int(id)
-    soup = BeautifulSoup(urllib.urlopen(url).read(), 'xml')
+    soup = BeautifulSoup(httpGet(url, session = session), 'xml')
     print soup.prettify()
     print
 
-def getCollectionByUserAndId(user, id=0):
+def getCollectionByUserAndId(user, id=0, session = None):
     URL = 'http://www.boardgamegeek.com/xmlapi/collection/%s'
     url = URL % user
-    soup = BeautifulSoup(urllib.urlopen(url).read(), 'xml')
+    soup = BeautifulSoup(httpGet(url, session = session), 'xml')
     collection = [ ]
     if id == 0:
         items = soup.find_all('item')
@@ -349,13 +328,13 @@ def getCollectionByUserAndId(user, id=0):
         collection.append(game2)
     return collection
 
-def getGameById(id):
+def getGameById(id, session = None):
     '''
     Return a hash containing the fields of the specified BGG game record.
     '''
     URL = 'http://www.boardgamegeek.com/xmlapi/boardgame/%d?stats=1'
     url = URL % int(id)
-    soup = BeautifulSoup(urllib.urlopen(url).read(), 'xml')
+    soup = BeautifulSoup(httpGet(url, session = session), 'xml')
     game = parseGameObject(soup)
     game['TITLE'] = soup.find('name', primary='true').get_text('', strip=True)
     game['BGGID'] = int(soup.find('boardgame').get('objectid'))
@@ -369,64 +348,12 @@ def getGameById(id):
 
 
 if __name__ == '__main__':
-    for user in ['wbmccarty']:
-        for id in [0]:
-            for game in getCollectionByUserAndId(user, id):
-                print 
-                for key in sorted(game.keys(), key=str.lower):
-                    if type(game[key]) is list:
-                        for v in game[key]:
-                            print '%s: %s' % (key, v)
-                    else:    
-                        print '%s: %s' % (key, game[key])
-    sys.exit(0)
-    
-    id = 3312
-    try:
-        game = getGameById(id)
-        print 
-        for key in sorted(game.keys(), key=str.lower):
-            if type(game[key]) is list:
-                for v in game[key]:
-                    print '%s: %s' % (key, v)
-            else:    
-                print '%s: %s' % (key, game[key])
-    except Exception as e:
-        print e
-    sys.exit(0)
 
-    prettyPrintGameById(3312)
-    sys.exit(0)
-    
-    prettyPrintCollectionByUserAndId('wbmccarty', 3312)
-    sys.exit(0)
-    
-    for user in ['wbmccarty']:
-        for id in [3312]:
-            for game in getCollectionByUserAndId(user, id):
-                print 
-                for key in sorted(game.keys(), key=str.lower):
-                    if type(game[key]) is list:
-                        for v in game[key]:
-                            print '%s: %s' % (key, v)
-                    else:    
-                        print '%s: %s' % (key, game[key])
-    sys.exit(0)
-    
-    prettyPrintCollectionByUserAndId('wbmccarty', 12333)
-    sys.exit(0)
-    
-    prettyPrintGameById(12333)
-    sys.exit(0)
-    
-    s = getElementsAndAttributes()
-    for key in sorted(s.keys(), key=str.lower):
-        print key
-    sys.exit(0)
-        
+    session = login()
+
     for id in [5, 701]:
         try:
-            game = getGameById(id)
+            game = getGameById(id, session = session)
             print 
             for key in sorted(game.keys(), key=str.lower):
                 if type(game[key]) is list:
@@ -438,6 +365,66 @@ if __name__ == '__main__':
             print e
     sys.exit(0)
 
+    prettyPrintGameById(12333, session = session)
+    sys.exit(0)
+    
+    prettyPrintCollectionByUserAndId('wbmccarty', 12333, session = session)
+    sys.exit(0)
+    
+    for user in ['wbmccarty']:
+        for id in [3312]:
+            for game in getCollectionByUserAndId(user, id, session = session):
+                print 
+                for key in sorted(game.keys(), key=str.lower):
+                    if type(game[key]) is list:
+                        for v in game[key]:
+                            print '%s: %s' % (key, v)
+                    else:    
+                        print '%s: %s' % (key, game[key])
+    sys.exit(0)
+    
+    prettyPrintCollectionByUserAndId('wbmccarty', 3312, session = session)
+    sys.exit(0)
+    
+    prettyPrintGameById(3312, session = session)
+    sys.exit(0)
+    
+    id = 3312
+    try:
+        game = getGameById(id, session = session)
+        print 
+        for key in sorted(game.keys(), key=str.lower):
+            if type(game[key]) is list:
+                for v in game[key]:
+                    print '%s: %s' % (key, v)
+            else:    
+                print '%s: %s' % (key, game[key])
+    except Exception as e:
+        print e
+    sys.exit(0)
+
+    s = getElementsAndAttributes(session = session)
+    for key in sorted(s.keys(), key=str.lower):
+        print key
+    sys.exit(0)
+  
+    for user in ['wbmccarty']:
+        for id in [0]:
+            for game in getCollectionByUserAndId(user, id, session = session):
+                print 
+                for key in sorted(game.keys(), key=str.lower):
+                    if type(game[key]) is list:
+                        for v in game[key]:
+                            print '%s: %s' % (key, v)
+                    else:    
+                        print '%s: %s' % (key, game[key])
+    sys.exit(0)
+    
+
+
+
+
+
     
 
 
@@ -447,12 +434,12 @@ if __name__ == '__main__':
 
 from bs4 import BeautifulSoup
 
-import ConfigParser
 import datetime
 import json
 import re
 import urllib
 import urllib2
+import ConfigParser
 import requests
 import sys
 import webbrowser
@@ -602,6 +589,14 @@ print >>html, '</style>'
 print >>html, '</head>'
 
 collection = BeautifulSoup(urllib2.urlopen(COLLECTION_URL))
+
+config = ConfigParser.ConfigParser()
+config.read('bgg_config.ini')
+loginurl = config.get('Login', 'LoginURL')
+bgg_username_name  = u'username'
+bgg_username_value = config.get('Login', 'UserID')
+bgg_password_name  = u'password'
+bgg_password_value = config.get('Login', 'Password')
 
 payload = { bgg_username_name:bgg_username_value,
     bgg_password_name:bgg_password_value }
