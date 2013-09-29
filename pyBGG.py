@@ -5,8 +5,64 @@ Modules for using the BoardGameGeek.com web site.
 
 To Do:
 test
+- Cache collection data.
+- Implement getWishlistByUserId to return a collection of items (within a channel, within an rss):
+
+  <item>
+   <title>
+    Item For Sale: Liberty Roads
+   </title>
+   <description>
+    &lt;p&gt;by &lt;a  href='http://boardgamegeek.com/user/jjdenver'&gt;jjdenver&lt;/a&gt;&lt;/p&gt;
+	
+		&lt;a  href="http://boardgamegeek.com/geekstore.php3?action=viewitem&amp;itemid=522244"   &gt;$42.00&lt;/a&gt;
+			for Board Game:
+			&lt;a  href="http://boardgamegeek.com/boardgame/39188/liberty-roads"   &gt;Liberty Roads&lt;/a&gt;&lt;br&gt;
+			Condition: Like New&lt;br&gt;
+			Location: United States
+   </description>
+   <link>
+    http://boardgamegeek.com/geekstore.php3?action=viewitem&amp;itemid=522244
+   </link>
+   <guid>
+    http://boardgamegeek.com/geekstore.php3?action=viewitem&amp;itemid=522244
+   </guid>
+   <pubDate>
+    Sun, 29 Sep 2013 03:09:27 +0000
+   </pubDate>
+   <dc:creator>
+    jjdenver
+   </dc:creator>
+  </item>
+
+    <item>
+   <title>
+    Item For Sale: The Supreme Commander
+   </title>
+   <description>
+    &lt;p&gt;by &lt;a  href='http://boardgamegeek.com/user/cdatkins'&gt;cdatkins&lt;/a&gt;&lt;/p&gt;
+	
+		&lt;a  href="http://boardgamegeek.com/geekstore.php3?action=viewitem&amp;itemid=522177"   &gt;$35.00&lt;/a&gt;
+			for Board Game:
+			&lt;a  href="http://boardgamegeek.com/boardgame/39066/the-supreme-commander"   &gt;The Supreme Commander&lt;/a&gt;&lt;br&gt;
+			Condition: New&lt;br&gt;
+			Location: United States
+   </description>
+   <link>
+    http://boardgamegeek.com/geekstore.php3?action=viewitem&amp;itemid=522177
+   </link>
+   <guid>
+    http://boardgamegeek.com/geekstore.php3?action=viewitem&amp;itemid=522177
+   </guid>
+   <pubDate>
+    Sat, 28 Sep 2013 20:55:02 +0000
+   </pubDate>
+   <dc:creator>
+    cdatkins
+   </dc:creator>
+  </item>
+ 
 - Use hash.update()
-- Capture Collect list of tags/elements available only to logged-in use.
 - Get BGG marketplace items for specified game:
   http://www.boardgamegeek.com/xmlapi/boardgame/111&marketplace=1
 - Get eBay auctions for wishlist of logged-in user:
@@ -20,12 +76,12 @@ test
   refine purchase offers: date, place (BGG/eBay), offer/auction id, BGG Id,
   seller, price, description/condition.
 - Search history.  
-- Create proper docstring.
+- Create proper docstrings.
 - Add and extract versions information:
   http://www.boardgamegeek.com/xmlapi/boardgame/701&versions=1
 - Ibid. videos=1, comments=1, ratingcomments=1
 - See http://boardgamegeek.com/guild/1229
-- Verify set up of GitHub.  
+- N.B.: Unless accessed via collection and then game ID, game record is NOT complete. 
 
 '''
 
@@ -140,6 +196,7 @@ def parseGameObject(soup):
     '''
     Parse a BeautifulSoup object containing the BGG representation of a game. Return a hash of the fields.
     '''
+##    print >>sys.stderr, 'Parse target:', soup.prettify()
     TYPEFLOAT = 0
     TYPEINT = 1
     TYPESTRING = 2
@@ -199,6 +256,31 @@ def parseGameObject(soup):
         'playingtime',
     ]
 
+    PRIVATEINFO = [
+        ('acquiredfrom', TYPESTRING),
+        ('acquisitiondate', TYPESTRING),
+        ('comment', TYPESTRING),
+        ('currvalue', TYPEFLOAT),
+        ('cv_currency', TYPESTRING),
+        ('numplays', TYPEINT),
+        ('originalname', TYPESTRING),
+        ('pp_currency', TYPESTRING),
+        ('pricepaid', TYPEFLOAT),
+        ('privatecomment', TYPESTRING),
+        ('privateinfo', TYPESTRING),
+        ('quantity', TYPEINT),
+        ('rating', TYPEFLOAT),
+        ('wishlistcomment', TYPESTRING),
+    ]
+
+    # Handled ad hoc, because a mixture of attribute and text values:
+    MARKETPLACE = [
+        ('listdate', TYPESTRING),
+        ('price', TYPEFLOAT), # has attribute currency
+        ('condition', TYPESTRING),
+        ('notes', TYPESTRING),
+    ]
+
     try:
         game = { }
         for rank in soup.find_all('rank'):
@@ -206,6 +288,53 @@ def parseGameObject(soup):
                 game[rank.get('friendlyname').encode('ascii', 'ignore').upper().replace(' ', '')] = int(rank.get('value'))
             except:
                 pass
+        marketplace = soup.find('marketplacelistings')
+        if marketplace:
+            n = 0
+            for listing in marketplace.find_all('listing'):
+                n += 1
+                for mlname, mltype in MARKETPLACE:
+                    ml = listing.find(mlname)
+                    if mltype == TYPEFLOAT:
+                        try:
+                            game['LISTING%03d_' % n + mlname.upper()] = \
+                                float(ml.get_text('', strip=True))
+                        except:
+                            pass
+                    elif mltype == TYPEINT:
+                        try:
+                            game['LISTING%03d_' % n + mlname.upper()] = \
+                                int(ml.get_text('', strip=True))
+                        except:
+                            pass
+                    elif mltype == TYPESTRING:
+                        try:
+                            game['LISTING%03d_' % n + mlname.upper()] = \
+                                ml.get_text('', strip=True)
+                        except:
+                            pass
+                    else: #TYPELIST
+                        try:
+                            game['LISTING%03d_' % n + mlname.upper()] = \
+                                [x.get_text() for x in listing.find_all(mlname)]
+                        except:
+                            pass
+                    # ad hoc
+                    try:
+                        game['LISTING%03d_' % n + 'PRICECURRENCY'] = \
+                            listing.find('price').get('currency')
+                    except:
+                        pass
+                    try:
+                        game['LISTING%03d_' % n + 'LINKHREF'] = \
+                            listing.find('link').get('href')
+                    except:
+                        pass
+                    try:
+                        game['LISTING%03d_' % n + 'LINKTITLE'] = \
+                            listing.find('link').get('title')
+                    except:
+                        pass
         status = soup.find('status')
         if status:
             for sf in STATUSFIELDS:
@@ -241,6 +370,39 @@ def parseGameObject(soup):
                     game[tf.lower()] = [x.get_text() for x in soup.find_all(tf)]
                 except:
                     pass
+        privateinfo = soup.find('privateinfo')
+        if privateinfo:
+##            print >>sys.stderr, 'Found privateinfo'
+            for pvname, pvtype in PRIVATEINFO:
+##                print >>sys.stderr, pvname, pvtype
+                pv = privateinfo.find(pvname)
+                if not pv:
+##                    print >>sys.stderr, 'Failed to find pv', pvname, pvtype
+                    continue
+##                print >>sys.stderr, 'Found pv', pvname, pvtype, pv.get_text('', strip=True)
+                if pvtype == TYPEFLOAT:
+                    try:
+                        game['PRIVATEINFO_' + pvname.upper()] = \
+                            float(pv.get_text('', strip=True))
+                    except:
+                        pass
+                elif pvtype == TYPEINT:
+                    try:
+                        game['PRIVATEINFO_' + pvname.upper()] = \
+                            int(pv.get_text('', strip=True))
+                    except:
+                        pass
+                elif pvtype == TYPESTRING:
+                    try:
+                        game['PRIVATEINFO_' + pvname.upper()] = \
+                            pv.get_text('', strip=True)
+                    except:
+                        pass
+                else: #TYPELIST
+                    try:
+                        game['PRIVATEINFO_' + pvname.upper()] = [x.get_text() for x in privateinfo.find_all(pvname)]
+                    except:
+                        pass
     except Exception as e:
         print >>sys.stderr, e
         traceback.print_exc()
@@ -258,32 +420,33 @@ def getElementsAndAttributes(session = None):
     # root element: items
     e = soup.find('items')
     while e:
-        if type(e) == element.Tag:
+        if type(e) == element.Tag and e.name != 'items' and e.name != 'item':
 ##            print >>sys.stderr, 'e tag:', 'name=', e.name, 'attrs=', e.attrs
             if e.name not in structure:
                 structure[e.name] = True
-##                print >>sys.stderr, e.name
+                print >>sys.stderr, e.name, e.get_text()
             for attr in e.attrs.keys():
                 if e.name + '.' + attr not in structure:
                     structure[e.name + '.' + attr] = True
-##                    print >>sys.stderr, e.name + '.' + attr
+                    print >>sys.stderr, e.name + '.' + attr, e.get(attr)
         e = e.next_element
+    print >>sys.stderr, 'structure after collection:', structure
     URL = 'http://www.boardgamegeek.com/xmlapi/boardgame/12333?stats=1'
     soup = BeautifulSoup(httpGet(URL, session))
-    print soup.prettify()
     # root element: boardgames
     e = soup.find('boardgames')
     while e:
-        if type(e) == element.Tag:
+        if type(e) == element.Tag and e.name != 'boardgames' and e.name != 'boardgame':
 ##            print >>sys.stderr, 'e tag:', 'name=', e.name, 'attrs=', e.attrs
             if e.name not in structure:
                 structure[e.name] = True
-##                print >>sys.stderr, e.name
+                print >>sys.stderr, e.name, e.get_text()
             for attr in e.attrs.keys():
                 if e.name + '.' + attr not in structure:
                     structure[e.name + '.' + attr] = True
-##                    print >>sys.stderr, e.name + '.' + attr
+                    print >>sys.stderr, e.name + '.' + attr, e.get(attr)
         e = e.next_element
+    print >>sys.stderr, 'structure after stats:', structure
     return structure
     
 def prettyPrintCollectionByUserAndId(user, id, session = None):
@@ -319,14 +482,73 @@ def getCollectionByUserAndId(user, id=0, session = None):
     else:
         items = soup.find_all('item', objectid=str(id))
     for item in items:
+##        print >>sys.stderr, 'item:', item.prettify()
         game = parseGameObject(item)
         game['TITLE'] = item.find('name').get_text('', strip=True)
         game['BGGID'] = int(item.get('objectid'))
-        game2 = getGameById(game['BGGID'])
+        game2 = getGameById(game['BGGID'],session = session)
         for key in game.keys():
             game2[key] = game[key]
         collection.append(game2)
     return collection
+
+def prettyPrintWishlistByUserId(userid, session = None):
+    '''
+    Pretty print the game record specified by the given BGG ID.
+    '''
+    URL = 'http://www.boardgamegeek.com/recentadditions/rss?subdomain=&colfilters%%5B0%%5D=wishlist&infilters%%5B0%%5D=storeitem&domain=boardgame&userid=%d'
+    url = URL % int(userid)
+    soup = BeautifulSoup(httpGet(url, session = session), 'xml')
+    print soup.prettify()
+    print
+
+##def getWishlistByUserId(userid, session = None):
+##    '''
+##    Return a hash containing the fields of the specified BGG game record.
+##    '''
+##    URL = 'http://www.boardgamegeek.com/xmlapi/boardgame/%d&marketplace=1'
+##    url = URL % int(id)
+##    soup = BeautifulSoup(httpGet(url, session = session), 'xml')
+##    game = parseGameObject(soup)
+##    game['TITLE'] = soup.find('name', primary='true').get_text('', strip=True)
+##    game['BGGID'] = int(soup.find('boardgame').get('objectid'))
+##    if 'description' in game:
+####        print >>sys.stderr, 'found description'
+##        game['DESCRIPTION'] = unicode(lxml.html.fromstring(game['description']).text_content())
+####        print >>sys.stderr, game['description']
+####        print >>sys.stderr, game['DESCRIPTION']
+##    return game
+
+
+def prettyPrintMarketplaceById(id, session = None):
+    '''
+    Pretty print the game record specified by the given BGG ID.
+    '''
+    URL = 'http://www.boardgamegeek.com/xmlapi/boardgame/%d&marketplace=1'
+    url = URL % int(id)
+    soup = BeautifulSoup(httpGet(url, session = session), 'xml')
+    print soup.prettify()
+    print
+
+
+def getMarketplaceById(id, session = None):
+    '''
+    Return a hash containing the fields of the specified BGG game record.
+    '''
+    URL = 'http://www.boardgamegeek.com/xmlapi/boardgame/%d&marketplace=1'
+    url = URL % int(id)
+    soup = BeautifulSoup(httpGet(url, session = session), 'xml')
+    game = parseGameObject(soup)
+    game['TITLE'] = soup.find('name', primary='true').get_text('', strip=True)
+    game['BGGID'] = int(soup.find('boardgame').get('objectid'))
+    if 'description' in game:
+##        print >>sys.stderr, 'found description'
+        game['DESCRIPTION'] = unicode(lxml.html.fromstring(game['description']).text_content())
+##        print >>sys.stderr, game['description']
+##        print >>sys.stderr, game['DESCRIPTION']
+    return game
+
+
 
 def getGameById(id, session = None):
     '''
@@ -351,6 +573,51 @@ if __name__ == '__main__':
 
     session = login()
 
+    userid = 696454
+    prettyPrintWishlistByUserId(userid, session = session)
+    sys.exit(0)
+
+    id = 111
+    prettyPrintMarketplaceById(id, session = session)
+    try:
+        game = getMarketplaceById(id, session = session)
+        print 
+        for key in sorted(game.keys(), key=str.lower):
+            if type(game[key]) is list:
+                for v in game[key]:
+                    print '%s: %s' % (key, v)
+            else:    
+                print '%s: %s' % (key, game[key])
+    except Exception as e:
+        print e
+    sys.exit(0)
+    
+    for user in ['wbmccarty']:
+        for id in [0]:
+            for game in getCollectionByUserAndId(user, id, session = session):
+                print 
+                for key in sorted(game.keys(), key=str.lower):
+                    if type(game[key]) is list:
+                        for v in game[key]:
+                            print '%s: %s' % (key, v)
+                    else:    
+                        print '%s: %s' % (key, game[key])
+        sys.exit(0)
+    
+    prettyPrintCollectionByUserAndId('wbmccarty', 54457, session = session)
+    sys.exit(0)
+    
+    prettyPrintCollectionByUserAndId('wbmccarty', 3312, session = session)
+    sys.exit(0)
+    
+    prettyPrintGameById(12333, session = session)
+    sys.exit(0)
+    
+    s = getElementsAndAttributes(session = session)
+    for key in sorted(s.keys(), key=str.lower):
+        print key
+    sys.exit(0)
+  
     for id in [5, 701]:
         try:
             game = getGameById(id, session = session)
@@ -365,12 +632,6 @@ if __name__ == '__main__':
             print e
     sys.exit(0)
 
-    prettyPrintGameById(12333, session = session)
-    sys.exit(0)
-    
-    prettyPrintCollectionByUserAndId('wbmccarty', 12333, session = session)
-    sys.exit(0)
-    
     for user in ['wbmccarty']:
         for id in [3312]:
             for game in getCollectionByUserAndId(user, id, session = session):
@@ -381,13 +642,16 @@ if __name__ == '__main__':
                             print '%s: %s' % (key, v)
                     else:    
                         print '%s: %s' % (key, game[key])
-    sys.exit(0)
-    
-    prettyPrintCollectionByUserAndId('wbmccarty', 3312, session = session)
-    sys.exit(0)
-    
-    prettyPrintGameById(3312, session = session)
-    sys.exit(0)
+        for id in [0]:
+            for game in getCollectionByUserAndId(user, id, session = session):
+                print 
+                for key in sorted(game.keys(), key=str.lower):
+                    if type(game[key]) is list:
+                        for v in game[key]:
+                            print '%s: %s' % (key, v)
+                    else:    
+                        print '%s: %s' % (key, game[key])
+        sys.exit(0)
     
     id = 3312
     try:
@@ -403,25 +667,7 @@ if __name__ == '__main__':
         print e
     sys.exit(0)
 
-    s = getElementsAndAttributes(session = session)
-    for key in sorted(s.keys(), key=str.lower):
-        print key
-    sys.exit(0)
-  
-    for user in ['wbmccarty']:
-        for id in [0]:
-            for game in getCollectionByUserAndId(user, id, session = session):
-                print 
-                for key in sorted(game.keys(), key=str.lower):
-                    if type(game[key]) is list:
-                        for v in game[key]:
-                            print '%s: %s' % (key, v)
-                    else:    
-                        print '%s: %s' % (key, game[key])
-    sys.exit(0)
-    
-
-
+   
 
 
 
